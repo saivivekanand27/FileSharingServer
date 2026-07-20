@@ -170,76 +170,63 @@ public class FileService {
     }
 
     /**
-     * Returns the number of remaining bytes in a file starting from the given offset.
+     * Downloads a file safely by validating path and offset, writing protocol responses,
+     * and streaming file bytes, all under a single per-filename lock to prevent TOCTOU races.
      *
-     * This is a read-only metadata query (file size check), so it does NOT
-     * acquire the per-filename lock. The sizeFrom + sendFile pair is protected
-     * because sendFile acquires the lock, and the caller (ClientHandler) calls
-     * them sequentially on the same thread.
-     *
-     * @param filename the name of the file in the storage directory
-     * @param offset   the byte offset to start from (0 = beginning of file)
-     * @return the number of bytes remaining from offset to end of file
-     * @throws FileNotFoundException    if the file does not exist in storage
-     * @throws IllegalArgumentException if offset is negative or beyond file size
+     * @param filename the name of the file to download
+     * @param offset   the byte offset to start from
+     * @param out      the client's DataOutputStream to write headers and data to
+     * @return the number of remaining bytes sent to the client
+     * @throws IOException             if reading from disk or writing to socket fails
+     * @throws FileNotFoundException    if the file does not exist
+     * @throws IllegalArgumentException if the offset is invalid
      */
-    public long sizeFrom(String filename, long offset) throws IOException {
-        Path targetPath = resolveSafePath(filename);
-
-        if (!Files.exists(targetPath)) {
-            throw new FileNotFoundException("File not found: " + targetPath.getFileName());
-        }
-
-        long totalSize = Files.size(targetPath);
-
-        if (offset < 0 || offset > totalSize) {
-            throw new IllegalArgumentException(
-                    "Invalid offset " + offset + " for file of size " + totalSize);
-        }
-
-        return totalSize - offset;
-    }
-
-    /**
-     * Sends file bytes to the client starting from the given offset.
-     *
-     * Acquires the per-filename lock before reading to prevent a concurrent
-     * upload from overwriting the file mid-read, which would send corrupted
-     * or inconsistent data to the downloading client.
-     *
-     * @param filename the name of the file in the storage directory
-     * @param offset   the byte offset to start reading from
-     * @param out      the DataOutputStream connected to the client socket
-     * @throws IOException if reading from disk or writing to the stream fails
-     */
-    public void sendFile(String filename, long offset, DataOutputStream out) throws IOException {
+    public long downloadFile(String filename, long offset, DataOutputStream out) throws IOException {
         Path targetPath = resolveSafePath(filename);
         String safeFilename = targetPath.getFileName().toString();
 
-        // Acquire the per-filename lock — prevents corrupted reads during concurrent uploads
         ReentrantLock lock = getLock(safeFilename);
         lock.lock();
         try {
-            // RandomAccessFile in read-only mode ("r")
-            try (RandomAccessFile raf = new RandomAccessFile(targetPath.toFile(), "r")) {
-                raf.seek(offset);
+            if (!Files.exists(targetPath)) {
+                throw new FileNotFoundException("File not found: " + safeFilename);
+            }
 
-                byte[] buffer = new byte[Protocol.BUFFER_SIZE];
-                long remaining = raf.length() - offset;
+            long totalSize = Files.size(targetPath);
 
-                // Stream file bytes in chunks
-                while (remaining > 0) {
-                    int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
-                    raf.readFully(buffer, 0, chunkSize);
-                    out.write(buffer, 0, chunkSize);
-                    remaining -= chunkSize;
+            if (offset < 0 || offset > totalSize) {
+                throw new IllegalArgumentException(
+                        "Invalid offset " + offset + " for file of size " + totalSize);
+            }
+
+            long remainingBytes = totalSize - offset;
+
+            // Write protocol headers inside the lock to prevent TOCTOU race
+            out.writeUTF(Protocol.RESP_OK);
+            out.writeLong(remainingBytes);
+            out.flush();
+
+            if (remainingBytes > 0) {
+                try (RandomAccessFile raf = new RandomAccessFile(targetPath.toFile(), "r")) {
+                    raf.seek(offset);
+
+                    byte[] buffer = new byte[Protocol.BUFFER_SIZE];
+                    long remaining = remainingBytes;
+
+                    while (remaining > 0) {
+                        int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
+                        raf.readFully(buffer, 0, chunkSize);
+                        out.write(buffer, 0, chunkSize);
+                        remaining -= chunkSize;
+                    }
+                    out.flush();
                 }
-
-                out.flush();
             }
 
             System.out.println("[FileService] File sent: " + safeFilename
-                    + " (from offset " + offset + ")");
+                    + " (from offset " + offset + ", " + remainingBytes + " bytes)");
+
+            return remainingBytes;
         } finally {
             lock.unlock();
         }

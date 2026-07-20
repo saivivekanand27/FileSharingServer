@@ -1,13 +1,7 @@
-[23:41:10] SERVER: Listening on port 5000 (thread pool size: 8)
-[23:41:13] /127.0.0.1:29918: Connected
-[23:41:13] /127.0.0.1:29918: LOGIN SUCCESS: user 'alice'
-[23:41:13] /127.0.0.1:29918: UPLOAD START: 'largefile.txt' (2328897 bytes)
-[23:41:13] /127.0.0.1:29918: UPLOAD SUCCESS: 'largefile.txt' (2328897 bytes) by 'alice'
-[23:41:13] /127.0.0.1:29918: EXIT (user: 'alice')
-[23:41:13] /127.0.0.1:29918: Connection closed
-[23:41:13] /127.0.0.1:29919: Connected
-[23:41:13] /127.0.0.1:29919: LOGIN SUCCESS: user 'alice'
-[23:41:13] /127.0.0.1:29919: UPLOAD START: 'largefile.txt' (2328897 bytes)
-[23:41:13] /127.0.0.1:29919: UPLOAD SUCCESS: 'largefile.txt' (2328897 bytes) by 'alice'
-[23:41:13] /127.0.0.1:29919: EXIT (user: 'alice')
-[23:41:13] /127.0.0.1:29919: Connection closed
+[00:50:11] SERVER: Listening on port 5000 (thread pool size: 8)
+[00:50:13] /127.0.0.1:54374: Connected
+[00:50:13] /127.0.0.1:54374: LOGIN SUCCESS: user 'alice'
+[00:50:13] /127.0.0.1:54374: DOWNLOAD START: 'largefile.txt' (offset 1000000)
+[00:50:13] /127.0.0.1:54374: DOWNLOAD SUCCESS: 'largefile.txt' (3088897 bytes, offset 1000000) to 'alice'
+[00:50:13] /127.0.0.1:54374: EXIT (user: 'alice')
+[00:50:13] /127.0.0.1:54374: Connection closed

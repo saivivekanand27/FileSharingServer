@@ -150,6 +150,12 @@ public class ClientHandler implements Runnable {
                                     logger.log(clientId, "UPLOAD SUCCESS: '" + filename
                                             + "' (" + fileSize + " bytes) by '"
                                             + session.getUsername() + "'");
+                                } catch (SecurityException e) {
+                                    String securityError = Protocol.error("Access denied: " + e.getMessage());
+                                    out.writeUTF(securityError);
+                                    out.flush();
+                                    logger.log(clientId, "UPLOAD FAILED: access denied for '"
+                                            + filename + "' — " + e.getMessage());
                                 } catch (IOException e) {
                                     String writeError = Protocol.error("Failed to write file to disk: " + e.getMessage());
                                     out.writeUTF(writeError);
@@ -174,18 +180,17 @@ public class ClientHandler implements Runnable {
                                         + dlFilename + "'");
                             } else {
                                 try {
-                                    // Calculate remaining bytes from offset
-                                    long remainingBytes = fileService.sizeFrom(dlFilename, dlOffset);
-
-                                    // Send OK, then the byte count, then the file bytes
-                                    out.writeUTF(Protocol.RESP_OK);
-                                    out.writeLong(remainingBytes);
-                                    logger.log(clientId, "DOWNLOAD START: '" + dlFilename + "' (" + remainingBytes + " bytes, offset " + dlOffset + ")");
-                                    fileService.sendFile(dlFilename, dlOffset, out);
-
+                                    logger.log(clientId, "DOWNLOAD START: '" + dlFilename + "' (offset " + dlOffset + ")");
+                                    long bytesSent = fileService.downloadFile(dlFilename, dlOffset, out);
                                     logger.log(clientId, "DOWNLOAD SUCCESS: '" + dlFilename
-                                            + "' (" + remainingBytes + " bytes, offset "
+                                            + "' (" + bytesSent + " bytes, offset "
                                             + dlOffset + ") to '" + session.getUsername() + "'");
+                                } catch (SecurityException e) {
+                                    String securityError = Protocol.error("Access denied: " + e.getMessage());
+                                    out.writeUTF(securityError);
+                                    out.flush();
+                                    logger.log(clientId, "DOWNLOAD FAILED: access denied — "
+                                            + e.getMessage());
                                 } catch (FileNotFoundException e) {
                                     String notFound = Protocol.error("File not found: " + dlFilename);
                                     out.writeUTF(notFound);

@@ -153,10 +153,21 @@ public class Client {
                             break;
                         }
 
-                        // Send DOWNLOAD command with filename and offset (0 = full download)
+                        File dlFile = new File(dlName);
+                        long offset = 0;
+                        boolean append = false;
+
+                        // Check if a partial file already exists locally
+                        if (dlFile.exists() && dlFile.isFile()) {
+                            offset = dlFile.length();
+                            append = true;
+                            System.out.println("[Client] Local partial file found (" + offset + " bytes). Resuming download...");
+                        }
+
+                        // Send DOWNLOAD command with filename and current offset
                         out.writeUTF(Protocol.CMD_DOWNLOAD);
                         out.writeUTF(dlName);
-                        out.writeLong(0L); // offset=0 for now, resume comes later
+                        out.writeLong(offset);
                         out.flush();
 
                         // Read server response
@@ -166,15 +177,19 @@ public class Client {
                             break;
                         }
 
-                        // Server responded OK — read the byte count
+                        // Server responded OK — read the remaining byte count
                         long dlSize = in.readLong();
-                        System.out.println("[Client] Downloading " + dlName
-                                + " (" + dlSize + " bytes)...");
+                        
+                        if (dlSize == 0) {
+                            System.out.println("[Client] File is already fully downloaded (" + offset + " bytes).");
+                            break;
+                        }
 
-                        // Read exactly dlSize bytes and save to a local file
-                        File dlFile = new File(dlName);
+                        System.out.println("[Client] Downloading remaining " + dlSize + " bytes for " + dlName + "...");
+
+                        // Read exactly dlSize bytes and append/write to the local file
                         try (BufferedOutputStream dlOut = new BufferedOutputStream(
-                                new FileOutputStream(dlFile))) {
+                                new FileOutputStream(dlFile, append))) {
                             byte[] dlBuffer = new byte[Protocol.BUFFER_SIZE];
                             long dlRemaining = dlSize;
 
