@@ -1,0 +1,5 @@
+[Server] Listening on port 5000...
+[Server] Client connected: /127.0.0.1:19219
+[Server] Received: Hello from client
+[Server] Sent: Hello from server
+[Server] Connection closed.
