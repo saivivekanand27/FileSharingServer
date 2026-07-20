@@ -1,5 +1,10 @@
+[AuthService] Loaded 1 user(s).
 [Server] Listening on port 5000...
-[Server] Client connected: /127.0.0.1:19219
-[Server] Received: Hello from client
-[Server] Sent: Hello from server
+[Server] Client connected: /127.0.0.1:39543
+[Server] Command received: LOGIN
+[Server] Authentication failed for user: alice
+[Server] Command received: LOGIN
+[Server] User authenticated: Session{user='alice', loginTime=2026-07-20T13:56:46.469218700}
+[Server] Command received: EXIT
+[Server] Client requested exit. User was: alice
 [Server] Connection closed.
