@@ -1,13 +1,8 @@
-[LoggerService] Logging to: C:\fileupload\logs\server.log
-[AuthService] Loaded 1 user(s).
-[FileService] Storage directory ready: C:\fileupload\storage
 [18:14:34] SERVER: Listening on port 5000
 [18:14:36] /127.0.0.1:9689: Connected
 [18:14:36] /127.0.0.1:9689: LOGIN FAILED: invalid credentials for user 'alice'
 [18:14:36] /127.0.0.1:9689: LOGIN SUCCESS: user 'alice'
-[FileService] File saved: C:\fileupload\storage\testfile.txt (304 bytes)
 [18:14:36] /127.0.0.1:9689: UPLOAD SUCCESS: 'testfile.txt' (304 bytes) by 'alice'
-[FileService] File sent: testfile.txt (from offset 0)
 [18:14:36] /127.0.0.1:9689: DOWNLOAD SUCCESS: 'testfile.txt' (304 bytes, offset 0) to 'alice'
 [18:14:36] /127.0.0.1:9689: DOWNLOAD FAILED: file not found — 'nosuchfile.txt'
 [18:14:36] /127.0.0.1:9689: EXIT (user: 'alice')
