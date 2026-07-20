@@ -2,34 +2,48 @@ package server;
 
 import common.Protocol;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.EOFException;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Server listens on the configured port and handles one client at a time.
+ * Server listens on the configured port and handles multiple clients concurrently.
  *
- * Phase 5: Supports LOGIN, UPLOAD, DOWNLOAD, and EXIT commands.
- * All actions are recorded via LoggerService to both logs/server.log
- * and the console for full observability.
+ * Phase 6: Uses an ExecutorService with a fixed thread pool of 8 worker threads.
+ * Each accepted client connection is wrapped in a ClientHandler (Runnable) and
+ * submitted to the pool, allowing up to 8 clients to be served simultaneously.
  *
- * The server runs a command loop per client connection:
- *   1. Read a command string from the client
- *   2. Dispatch to the appropriate handler
- *   3. Send back a response (OK or ERROR:<reason>)
- *   4. Log the outcome
- *   5. Loop until EXIT or client disconnects
+ * Why a thread pool instead of new Thread() per client:
+ * - Thread creation is expensive: each new Thread() allocates ~1MB of stack memory
+ *   and requires an OS-level kernel thread to be created.
+ * - Under heavy load (e.g., 1000 rapid connections), spawning unbounded threads
+ *   would exhaust memory and crash the JVM with OutOfMemoryError.
+ * - A fixed pool caps resource usage at exactly 8 threads regardless of load.
+ *   If all 8 are busy, new connections wait in the pool's internal queue until
+ *   a thread becomes available — graceful degradation instead of a crash.
+ * - Thread reuse: when a client disconnects, the pool thread is returned to the
+ *   pool and immediately picks up the next queued connection, avoiding the
+ *   overhead of destroying and recreating a thread.
+ *
+ * The accept loop runs on the main thread and never blocks the pool:
+ *   1. Main thread calls serverSocket.accept() (blocks until a client connects)
+ *   2. accept() returns a Socket — main thread creates a ClientHandler
+ *   3. Main thread submits the handler to the pool (non-blocking enqueue)
+ *   4. Main thread loops back to accept() immediately
+ *   5. A pool worker thread picks up the handler and runs the command loop
  */
 public class Server {
+
+    // Number of worker threads in the pool
+    private static final int THREAD_POOL_SIZE = 8;
 
     public static void main(String[] args) {
 
         // Use try-with-resources on LoggerService to ensure the log file writer is closed
-        // and released under all conditions (including initialization or runtime failures)
         try (LoggerService logger = new LoggerService()) {
 
             // Initialize the authentication service (loads users.txt)
@@ -39,7 +53,7 @@ public class Server {
             } catch (IOException e) {
                 logger.log("SERVER", "Failed to initialize AuthService: " + e.getMessage());
                 e.printStackTrace();
-                return; // try-with-resources will close the logger
+                return;
             }
 
             // Initialize the file service (creates storage/ directory if needed)
@@ -49,184 +63,68 @@ public class Server {
             } catch (IOException e) {
                 logger.log("SERVER", "Failed to initialize FileService: " + e.getMessage());
                 e.printStackTrace();
-                return; // try-with-resources will close the logger
+                return;
             }
 
-            // try-with-resources ensures ServerSocket is closed on shutdown
+            // Create a fixed-size thread pool for handling client connections
+            ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+
             try (ServerSocket serverSocket = new ServerSocket(Protocol.PORT)) {
 
-                logger.log("SERVER", "Listening on port " + Protocol.PORT);
+                logger.log("SERVER", "Listening on port " + Protocol.PORT
+                        + " (thread pool size: " + THREAD_POOL_SIZE + ")");
 
-                // Accept one client connection at a time
-                // (threading will be added in a future phase)
-                try (Socket clientSocket = serverSocket.accept()) {
+                // ── Accept Loop ─────────────────────────────────────────
+                // Runs on the main thread. For each accepted connection,
+                // create a ClientHandler and submit it to the thread pool.
+                // The main thread never processes commands itself — it only
+                // accepts connections and delegates them.
+                while (true) {
+                    Socket clientSocket = null;
+                    try {
+                        // Block until a client connects
+                        clientSocket = serverSocket.accept();
 
-                    // Use the remote address as the client identifier for log entries
-                    String clientId = clientSocket.getRemoteSocketAddress().toString();
+                        // Wrap in a ClientHandler and submit to the pool
+                        ClientHandler handler = new ClientHandler(
+                                clientSocket, authService, fileService, logger);
+                        threadPool.submit(handler);
 
-                    logger.log(clientId, "Connected");
-
-                    // Wrap the socket's raw byte streams with Data streams for typed I/O
-                    try (
-                        DataInputStream in = new DataInputStream(clientSocket.getInputStream());
-                        DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream())
-                    ) {
-                        // Session is null until the client successfully logs in
-                        Session session = null;
-
-                        // ── Command Loop ─────────────────────────────────────
-                        // Keep reading commands until EXIT or client disconnects
-                        boolean running = true;
-                        while (running) {
+                    } catch (RejectedExecutionException e) {
+                        logger.log("SERVER", "Task submission rejected: " + e.getMessage());
+                        if (clientSocket != null) {
                             try {
-                                // Read the command string from the client
-                                String command = in.readUTF();
-
-                                switch (command) {
-                                    case Protocol.CMD_LOGIN:
-                                        // Read username and password as separate UTF strings
-                                        String username = in.readUTF();
-                                        String password = in.readUTF();
-
-                                        if (session != null) {
-                                            // Already logged in — reject duplicate login
-                                            String error = Protocol.error("Already logged in as " + session.getUsername());
-                                            out.writeUTF(error);
-                                            out.flush();
-                                            logger.log(clientId, "LOGIN FAILED: duplicate login attempt as '"
-                                                    + username + "' (already logged in as '"
-                                                    + session.getUsername() + "')");
-                                        } else if (authService.authenticate(username, password)) {
-                                            // Credentials valid — create session
-                                            session = new Session(username);
-                                            out.writeUTF(Protocol.RESP_OK);
-                                            out.flush();
-                                            logger.log(clientId, "LOGIN SUCCESS: user '" + username + "'");
-                                        } else {
-                                            // Invalid credentials
-                                            String error = Protocol.error("Invalid credentials");
-                                            out.writeUTF(error);
-                                            out.flush();
-                                            logger.log(clientId, "LOGIN FAILED: invalid credentials for user '"
-                                                    + username + "'");
-                                        }
-                                        break;
-
-                                    case Protocol.CMD_UPLOAD:
-                                        // Read file metadata: name and size
-                                        String filename = in.readUTF();
-                                        long fileSize = in.readLong();
-
-                                        if (fileSize < 0) {
-                                            String sizeError = Protocol.error("Invalid file size: " + fileSize);
-                                            out.writeUTF(sizeError);
-                                            out.flush();
-                                            logger.log(clientId, "UPLOAD FAILED: invalid file size "
-                                                    + fileSize + " for '" + filename + "'");
-                                            break;
-                                        }
-
-                                        if (session == null) {
-                                            // Not authenticated — must still drain the file bytes
-                                            // to keep the protocol in sync before sending error
-                                            fileService.drainBytes(fileSize, in);
-                                            String uploadError = Protocol.error("Not authenticated");
-                                            out.writeUTF(uploadError);
-                                            out.flush();
-                                            logger.log(clientId, "UPLOAD FAILED: not authenticated — '"
-                                                    + filename + "' (" + fileSize + " bytes drained)");
-                                        } else {
-                                            // Authenticated — receive and save the file
-                                            try {
-                                                fileService.receiveFile(filename, fileSize, in);
-                                                out.writeUTF(Protocol.RESP_OK);
-                                                out.flush();
-                                                logger.log(clientId, "UPLOAD SUCCESS: '" + filename
-                                                        + "' (" + fileSize + " bytes) by '"
-                                                        + session.getUsername() + "'");
-                                            } catch (IOException e) {
-                                                String writeError = Protocol.error("Failed to write file to disk: " + e.getMessage());
-                                                out.writeUTF(writeError);
-                                                out.flush();
-                                                logger.log(clientId, "UPLOAD FAILED: disk write error for '"
-                                                        + filename + "' — " + e.getMessage());
-                                            }
-                                        }
-                                        break;
-
-                                    case Protocol.CMD_DOWNLOAD:
-                                        // Read the requested filename and offset
-                                        String dlFilename = in.readUTF();
-                                        long dlOffset = in.readLong();
-
-                                        if (session == null) {
-                                            // Not authenticated — no bytes to drain (server is sender)
-                                            String dlError = Protocol.error("Not authenticated");
-                                            out.writeUTF(dlError);
-                                            out.flush();
-                                            logger.log(clientId, "DOWNLOAD FAILED: not authenticated — '"
-                                                    + dlFilename + "'");
-                                        } else {
-                                            try {
-                                                // Calculate remaining bytes from offset
-                                                long remainingBytes = fileService.sizeFrom(dlFilename, dlOffset);
-
-                                                // Send OK, then the byte count, then the file bytes
-                                                out.writeUTF(Protocol.RESP_OK);
-                                                out.writeLong(remainingBytes);
-                                                fileService.sendFile(dlFilename, dlOffset, out);
-
-                                                logger.log(clientId, "DOWNLOAD SUCCESS: '" + dlFilename
-                                                        + "' (" + remainingBytes + " bytes, offset "
-                                                        + dlOffset + ") to '" + session.getUsername() + "'");
-                                            } catch (FileNotFoundException e) {
-                                                String notFound = Protocol.error("File not found: " + dlFilename);
-                                                out.writeUTF(notFound);
-                                                out.flush();
-                                                logger.log(clientId, "DOWNLOAD FAILED: file not found — '"
-                                                        + dlFilename + "'");
-                                            } catch (IllegalArgumentException e) {
-                                                String badOffset = Protocol.error(e.getMessage());
-                                                out.writeUTF(badOffset);
-                                                out.flush();
-                                                logger.log(clientId, "DOWNLOAD FAILED: invalid offset — "
-                                                        + e.getMessage());
-                                            }
-                                        }
-                                        break;
-
-                                    case Protocol.CMD_EXIT:
-                                        // Client requested disconnect
-                                        out.writeUTF(Protocol.RESP_OK);
-                                        out.flush();
-                                        running = false;
-                                        logger.log(clientId, "EXIT"
-                                                + (session != null
-                                                ? " (user: '" + session.getUsername() + "')"
-                                                : " (not authenticated)"));
-                                        break;
-
-                                    default:
-                                        // Unknown command — send error, continue loop
-                                        String error = Protocol.error("Unknown command: " + command);
-                                        out.writeUTF(error);
-                                        out.flush();
-                                        logger.log(clientId, "UNKNOWN COMMAND: '" + command + "'");
-                                        break;
-                                }
-                            } catch (EOFException e) {
-                                // Client disconnected without sending EXIT at any read step
-                                logger.log(clientId, "Disconnected unexpectedly");
-                                break;
+                                clientSocket.close();
+                            } catch (IOException ex) {
+                                // ignore
                             }
                         }
+                    } catch (IOException e) {
+                        // Accept failed (e.g., server socket closed)
+                        logger.log("SERVER", "Accept error: " + e.getMessage());
+                        break;
                     }
-                    logger.log(clientId, "Connection closed");
                 }
 
             } catch (IOException e) {
-                logger.log("SERVER", "Error: " + e.getMessage());
+                logger.log("SERVER", "Failed to start server: " + e.getMessage());
                 e.printStackTrace();
+            } finally {
+                // Gracefully shut down the thread pool:
+                // 1. Stop accepting new tasks
+                threadPool.shutdown();
+                try {
+                    // 2. Wait up to 30 seconds for running handlers to finish
+                    if (!threadPool.awaitTermination(30, TimeUnit.SECONDS)) {
+                        // 3. Force-kill any remaining tasks if they haven't finished
+                        threadPool.shutdownNow();
+                        logger.log("SERVER", "Thread pool forcibly shut down");
+                    }
+                } catch (InterruptedException e) {
+                    threadPool.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+                logger.log("SERVER", "Shutdown complete");
             }
 
         } catch (Exception e) {

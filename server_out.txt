@@ -1,14 +1,22 @@
 [LoggerService] Logging to: C:\fileupload\logs\server.log
 [AuthService] Loaded 1 user(s).
 [FileService] Storage directory ready: C:\fileupload\storage
-[18:14:34] SERVER: Listening on port 5000
-[18:14:36] /127.0.0.1:9689: Connected
-[18:14:36] /127.0.0.1:9689: LOGIN FAILED: invalid credentials for user 'alice'
-[18:14:36] /127.0.0.1:9689: LOGIN SUCCESS: user 'alice'
+[22:20:16] SERVER: Listening on port 5000 (thread pool size: 8)
+[22:20:18] /127.0.0.1:57226: Connected
+[22:20:18] /127.0.0.1:57226: LOGIN SUCCESS: user 'alice'
 [FileService] File saved: C:\fileupload\storage\testfile.txt (304 bytes)
-[18:14:36] /127.0.0.1:9689: UPLOAD SUCCESS: 'testfile.txt' (304 bytes) by 'alice'
+[22:20:18] /127.0.0.1:57226: UPLOAD SUCCESS: 'testfile.txt' (304 bytes) by 'alice'
+[22:20:18] /127.0.0.1:57226: EXIT (user: 'alice')
+[22:20:18] /127.0.0.1:57226: Connection closed
+[22:20:18] /127.0.0.1:57227: Connected
+[22:20:18] /127.0.0.1:57227: LOGIN SUCCESS: user 'alice'
+[FileService] File saved: C:\fileupload\storage\testfile.txt (304 bytes)
+[22:20:18] /127.0.0.1:57227: UPLOAD SUCCESS: 'testfile.txt' (304 bytes) by 'alice'
+[22:20:18] /127.0.0.1:57227: EXIT (user: 'alice')
+[22:20:18] /127.0.0.1:57227: Connection closed
+[22:20:19] /127.0.0.1:57228: Connected
+[22:20:19] /127.0.0.1:57228: LOGIN SUCCESS: user 'alice'
 [FileService] File sent: testfile.txt (from offset 0)
-[18:14:36] /127.0.0.1:9689: DOWNLOAD SUCCESS: 'testfile.txt' (304 bytes, offset 0) to 'alice'
-[18:14:36] /127.0.0.1:9689: DOWNLOAD FAILED: file not found — 'nosuchfile.txt'
-[18:14:36] /127.0.0.1:9689: EXIT (user: 'alice')
-[18:14:36] /127.0.0.1:9689: Connection closed
+[22:20:19] /127.0.0.1:57228: DOWNLOAD SUCCESS: 'testfile.txt' (304 bytes, offset 0) to 'alice'
+[22:20:19] /127.0.0.1:57228: EXIT (user: 'alice')
+[22:20:19] /127.0.0.1:57228: Connection closed
