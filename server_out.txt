@@ -1,10 +1,15 @@
 [AuthService] Loaded 1 user(s).
+[FileService] Storage directory ready: C:\fileupload\storage
 [Server] Listening on port 5000...
-[Server] Client connected: /127.0.0.1:39543
+[Server] Client connected: /127.0.0.1:17323
+[Server] Command received: UPLOAD
+[FileService] Drained 304 bytes (upload rejected).
+[Server] Upload rejected (not authenticated): testfile.txt (304 bytes drained)
 [Server] Command received: LOGIN
-[Server] Authentication failed for user: alice
-[Server] Command received: LOGIN
-[Server] User authenticated: Session{user='alice', loginTime=2026-07-20T13:56:46.469218700}
+[Server] User authenticated: Session{user='alice', loginTime=2026-07-20T15:43:49.568204800}
+[Server] Command received: UPLOAD
+[FileService] File saved: C:\fileupload\storage\testfile.txt (304 bytes)
+[Server] Upload complete: testfile.txt (304 bytes) by alice
 [Server] Command received: EXIT
 [Server] Client requested exit. User was: alice
 [Server] Connection closed.

@@ -12,13 +12,14 @@ import java.net.Socket;
 /**
  * Server listens on the configured port and handles one client at a time.
  *
- * Phase 2: Supports LOGIN and EXIT commands with real credential checking
- * via AuthService. Each successful login creates a Session object that
- * tracks the authenticated user.
+ * Phase 3: Supports LOGIN, UPLOAD, and EXIT commands.
+ * - LOGIN: authenticates via AuthService, creates a Session on success.
+ * - UPLOAD: receives a file from the client and saves to disk via FileService.
+ * - EXIT: closes the connection gracefully.
  *
  * The server runs a command loop per client connection:
  *   1. Read a command string from the client
- *   2. Dispatch to the appropriate handler (LOGIN / EXIT)
+ *   2. Dispatch to the appropriate handler
  *   3. Send back a response (OK or ERROR:<reason>)
  *   4. Loop until EXIT or client disconnects
  */
@@ -34,6 +35,16 @@ public class Server {
             System.err.println("[Server] Failed to initialize AuthService: " + e.getMessage());
             e.printStackTrace();
             return; // Cannot start server without auth service
+        }
+
+        // Initialize the file service (creates storage/ directory if needed)
+        FileService fileService;
+        try {
+            fileService = new FileService();
+        } catch (IOException e) {
+            System.err.println("[Server] Failed to initialize FileService: " + e.getMessage());
+            e.printStackTrace();
+            return; // Cannot start server without file service
         }
 
         // try-with-resources ensures ServerSocket is closed on shutdown
@@ -92,6 +103,45 @@ public class Server {
                                         out.flush();
                                         System.out.println("[Server] Authentication failed for user: "
                                                 + username);
+                                    }
+                                    break;
+
+                                case Protocol.CMD_UPLOAD:
+                                    // Read file metadata: name and size
+                                    String filename = in.readUTF();
+                                    long fileSize = in.readLong();
+
+                                    if (fileSize < 0) {
+                                        String sizeError = Protocol.error("Invalid file size: " + fileSize);
+                                        out.writeUTF(sizeError);
+                                        out.flush();
+                                        System.out.println("[Server] Rejected invalid file size: " + fileSize);
+                                        break;
+                                    }
+
+                                    if (session == null) {
+                                        // Not authenticated — must still drain the file bytes
+                                        // to keep the protocol in sync before sending error
+                                        fileService.drainBytes(fileSize, in);
+                                        String uploadError = Protocol.error("Not authenticated");
+                                        out.writeUTF(uploadError);
+                                        out.flush();
+                                        System.out.println("[Server] Upload rejected (not authenticated): "
+                                                + filename + " (" + fileSize + " bytes drained)");
+                                    } else {
+                                        // Authenticated — receive and save the file
+                                        try {
+                                            fileService.receiveFile(filename, fileSize, in);
+                                            out.writeUTF(Protocol.RESP_OK);
+                                            out.flush();
+                                            System.out.println("[Server] Upload complete: " + filename
+                                                    + " (" + fileSize + " bytes) by " + session.getUsername());
+                                        } catch (IOException e) {
+                                            String writeError = Protocol.error("Failed to write file to disk: " + e.getMessage());
+                                            out.writeUTF(writeError);
+                                            out.flush();
+                                            System.out.println("[Server] File write error: " + e.getMessage());
+                                        }
                                     }
                                     break;
 

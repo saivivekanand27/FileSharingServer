@@ -2,8 +2,11 @@ package client;
 
 import common.Protocol;
 
+import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
@@ -11,7 +14,7 @@ import java.util.Scanner;
 /**
  * Client connects to the server and presents a console menu for user interaction.
  *
- * Phase 2: Supports LOGIN and EXIT commands.
+ * Phase 3: Supports LOGIN, UPLOAD, and EXIT commands.
  * The client maintains a loop, reading user choices from the console,
  * sending the corresponding protocol commands to the server,
  * and displaying the server's response.
@@ -39,7 +42,8 @@ public class Client {
                 System.out.println("|     FILE SHARING CLIENT      |");
                 System.out.println("+------------------------------+");
                 System.out.println("|  1) Login                    |");
-                System.out.println("|  2) Exit                     |");
+                System.out.println("|  2) Upload File              |");
+                System.out.println("|  3) Exit                     |");
                 System.out.println("+------------------------------+");
                 System.out.print("Choose an option: ");
 
@@ -74,6 +78,69 @@ public class Client {
                         break;
 
                     case "2":
+                        // ── Upload Flow ──────────────────────────────
+                        System.out.print("Enter file path: ");
+                        String filePath = scanner.nextLine().trim();
+
+                        if (filePath.isEmpty()) {
+                            System.out.println("[Client] Error: File path cannot be empty.");
+                            break;
+                        }
+
+                        File file = new File(filePath);
+
+                        // Validate the file exists and is readable
+                        if (!file.exists() || !file.isFile()) {
+                            System.out.println("[Client] Error: File not found: " + filePath);
+                            break;
+                        }
+
+                        if (!file.canRead()) {
+                            System.out.println("[Client] Error: Cannot read file: " + filePath);
+                            break;
+                        }
+
+                        // Send UPLOAD command with filename and file size
+                        String fileName = file.getName();
+                        long fileSize = file.length();
+
+                        out.writeUTF(Protocol.CMD_UPLOAD);
+                        out.writeUTF(fileName);
+                        out.writeLong(fileSize);
+
+                        // Stream file bytes to the server in chunks
+                        // BufferedInputStream reduces disk read syscalls
+                        try (BufferedInputStream fileIn = new BufferedInputStream(
+                                new FileInputStream(file))) {
+                            byte[] buffer = new byte[Protocol.BUFFER_SIZE];
+                            long remaining = fileSize;
+
+                            while (remaining > 0) {
+                                int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
+                                int bytesRead = fileIn.read(buffer, 0, chunkSize);
+                                if (bytesRead == -1) {
+                                    // File was shorter than expected (e.g., truncated during read)
+                                    throw new IOException("Unexpected end of file while reading: " + filePath);
+                                }
+                                out.write(buffer, 0, bytesRead);
+                                remaining -= bytesRead;
+                            }
+                        }
+                        out.flush();
+
+                        System.out.println("[Client] Sent file: " + fileName
+                                + " (" + fileSize + " bytes)");
+
+                        // Read server response
+                        String uploadResponse = in.readUTF();
+                        if (Protocol.isError(uploadResponse)) {
+                            System.out.println("[Client] Upload failed: " + uploadResponse);
+                        } else {
+                            System.out.println("[Client] Upload successful!");
+                        }
+                        break;
+
+                    case "3":
                         // ── Exit Flow ────────────────────────────────
                         out.writeUTF(Protocol.CMD_EXIT);
                         out.flush();
@@ -87,7 +154,7 @@ public class Client {
 
                     default:
                         // Invalid menu choice — handled client-side, no server call
-                        System.out.println("[Client] Invalid option. Please choose 1 or 2.");
+                        System.out.println("[Client] Invalid option. Please choose 1, 2, or 3.");
                         break;
                 }
             }
