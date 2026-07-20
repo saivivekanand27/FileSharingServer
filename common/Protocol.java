@@ -20,9 +20,10 @@ public final class Protocol {
     // ── Command Constants ────────────────────────────────────────────
     // Commands sent from client to server as the first UTF string in a request
 
-    public static final String CMD_LOGIN  = "LOGIN";
-    public static final String CMD_EXIT   = "EXIT";
-    public static final String CMD_UPLOAD = "UPLOAD";
+    public static final String CMD_LOGIN    = "LOGIN";
+    public static final String CMD_EXIT     = "EXIT";
+    public static final String CMD_UPLOAD   = "UPLOAD";
+    public static final String CMD_DOWNLOAD = "DOWNLOAD";
 
     // ── Transfer Settings ────────────────────────────────────────────
     // Buffer size for chunked file transfer (8 KB)

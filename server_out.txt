@@ -1,15 +1,17 @@
 [AuthService] Loaded 1 user(s).
 [FileService] Storage directory ready: C:\fileupload\storage
 [Server] Listening on port 5000...
-[Server] Client connected: /127.0.0.1:17323
-[Server] Command received: UPLOAD
-[FileService] Drained 304 bytes (upload rejected).
-[Server] Upload rejected (not authenticated): testfile.txt (304 bytes drained)
+[Server] Client connected: /127.0.0.1:28077
 [Server] Command received: LOGIN
-[Server] User authenticated: Session{user='alice', loginTime=2026-07-20T15:43:49.568204800}
+[Server] User authenticated: Session{user='alice', loginTime=2026-07-20T17:15:29.554626100}
 [Server] Command received: UPLOAD
 [FileService] File saved: C:\fileupload\storage\testfile.txt (304 bytes)
 [Server] Upload complete: testfile.txt (304 bytes) by alice
+[Server] Command received: DOWNLOAD
+[FileService] File sent: testfile.txt (from offset 0)
+[Server] Download complete: testfile.txt (304 bytes, offset 0) to alice
+[Server] Command received: DOWNLOAD
+[Server] File not found: nosuchfile.txt
 [Server] Command received: EXIT
 [Server] Client requested exit. User was: alice
 [Server] Connection closed.

@@ -3,10 +3,12 @@ package client;
 import common.Protocol;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
@@ -14,7 +16,7 @@ import java.util.Scanner;
 /**
  * Client connects to the server and presents a console menu for user interaction.
  *
- * Phase 3: Supports LOGIN, UPLOAD, and EXIT commands.
+ * Phase 4: Supports LOGIN, UPLOAD, DOWNLOAD, and EXIT commands.
  * The client maintains a loop, reading user choices from the console,
  * sending the corresponding protocol commands to the server,
  * and displaying the server's response.
@@ -43,7 +45,8 @@ public class Client {
                 System.out.println("+------------------------------+");
                 System.out.println("|  1) Login                    |");
                 System.out.println("|  2) Upload File              |");
-                System.out.println("|  3) Exit                     |");
+                System.out.println("|  3) Download File            |");
+                System.out.println("|  4) Exit                     |");
                 System.out.println("+------------------------------+");
                 System.out.print("Choose an option: ");
 
@@ -141,6 +144,54 @@ public class Client {
                         break;
 
                     case "3":
+                        // ── Download Flow ────────────────────────────
+                        System.out.print("Enter filename to download: ");
+                        String dlName = scanner.nextLine().trim();
+
+                        if (dlName.isEmpty()) {
+                            System.out.println("[Client] Error: Filename cannot be empty.");
+                            break;
+                        }
+
+                        // Send DOWNLOAD command with filename and offset (0 = full download)
+                        out.writeUTF(Protocol.CMD_DOWNLOAD);
+                        out.writeUTF(dlName);
+                        out.writeLong(0L); // offset=0 for now, resume comes later
+                        out.flush();
+
+                        // Read server response
+                        String dlResponse = in.readUTF();
+                        if (Protocol.isError(dlResponse)) {
+                            System.out.println("[Client] Download failed: " + dlResponse);
+                            break;
+                        }
+
+                        // Server responded OK — read the byte count
+                        long dlSize = in.readLong();
+                        System.out.println("[Client] Downloading " + dlName
+                                + " (" + dlSize + " bytes)...");
+
+                        // Read exactly dlSize bytes and save to a local file
+                        File dlFile = new File(dlName);
+                        try (BufferedOutputStream dlOut = new BufferedOutputStream(
+                                new FileOutputStream(dlFile))) {
+                            byte[] dlBuffer = new byte[Protocol.BUFFER_SIZE];
+                            long dlRemaining = dlSize;
+
+                            while (dlRemaining > 0) {
+                                int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, dlRemaining);
+                                in.readFully(dlBuffer, 0, chunkSize);
+                                dlOut.write(dlBuffer, 0, chunkSize);
+                                dlRemaining -= chunkSize;
+                            }
+                            dlOut.flush();
+                        }
+
+                        System.out.println("[Client] Download successful! Saved to: "
+                                + dlFile.getAbsolutePath());
+                        break;
+
+                    case "4":
                         // ── Exit Flow ────────────────────────────────
                         out.writeUTF(Protocol.CMD_EXIT);
                         out.flush();
@@ -154,7 +205,7 @@ public class Client {
 
                     default:
                         // Invalid menu choice — handled client-side, no server call
-                        System.out.println("[Client] Invalid option. Please choose 1, 2, or 3.");
+                        System.out.println("[Client] Invalid option. Please choose 1, 2, 3, or 4.");
                         break;
                 }
             }

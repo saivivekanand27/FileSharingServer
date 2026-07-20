@@ -5,6 +5,7 @@ import common.Protocol;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -12,9 +13,10 @@ import java.net.Socket;
 /**
  * Server listens on the configured port and handles one client at a time.
  *
- * Phase 3: Supports LOGIN, UPLOAD, and EXIT commands.
+ * Phase 4: Supports LOGIN, UPLOAD, DOWNLOAD, and EXIT commands.
  * - LOGIN: authenticates via AuthService, creates a Session on success.
  * - UPLOAD: receives a file from the client and saves to disk via FileService.
+ * - DOWNLOAD: sends a previously uploaded file back to the client.
  * - EXIT: closes the connection gracefully.
  *
  * The server runs a command loop per client connection:
@@ -141,6 +143,45 @@ public class Server {
                                             out.writeUTF(writeError);
                                             out.flush();
                                             System.out.println("[Server] File write error: " + e.getMessage());
+                                        }
+                                    }
+                                    break;
+
+                                case Protocol.CMD_DOWNLOAD:
+                                    // Read the requested filename and offset
+                                    String dlFilename = in.readUTF();
+                                    long dlOffset = in.readLong();
+
+                                    if (session == null) {
+                                        // Not authenticated — no bytes to drain (server is sender)
+                                        String dlError = Protocol.error("Not authenticated");
+                                        out.writeUTF(dlError);
+                                        out.flush();
+                                        System.out.println("[Server] Download rejected (not authenticated): "
+                                                + dlFilename);
+                                    } else {
+                                        try {
+                                            // Calculate remaining bytes from offset
+                                            long remainingBytes = fileService.sizeFrom(dlFilename, dlOffset);
+
+                                            // Send OK, then the byte count, then the file bytes
+                                            out.writeUTF(Protocol.RESP_OK);
+                                            out.writeLong(remainingBytes);
+                                            fileService.sendFile(dlFilename, dlOffset, out);
+
+                                            System.out.println("[Server] Download complete: " + dlFilename
+                                                    + " (" + remainingBytes + " bytes, offset "
+                                                    + dlOffset + ") to " + session.getUsername());
+                                        } catch (FileNotFoundException e) {
+                                            String notFound = Protocol.error("File not found: " + dlFilename);
+                                            out.writeUTF(notFound);
+                                            out.flush();
+                                            System.out.println("[Server] File not found: " + dlFilename);
+                                        } catch (IllegalArgumentException e) {
+                                            String badOffset = Protocol.error(e.getMessage());
+                                            out.writeUTF(badOffset);
+                                            out.flush();
+                                            System.out.println("[Server] Invalid offset: " + e.getMessage());
                                         }
                                     }
                                     break;
