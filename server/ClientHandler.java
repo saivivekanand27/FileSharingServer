@@ -143,6 +143,7 @@ public class ClientHandler implements Runnable {
                             } else {
                                 // Authenticated — receive and save the file
                                 try {
+                                    logger.log(clientId, "UPLOAD START: '" + filename + "' (" + fileSize + " bytes)");
                                     fileService.receiveFile(filename, fileSize, in);
                                     out.writeUTF(Protocol.RESP_OK);
                                     out.flush();
@@ -179,6 +180,7 @@ public class ClientHandler implements Runnable {
                                     // Send OK, then the byte count, then the file bytes
                                     out.writeUTF(Protocol.RESP_OK);
                                     out.writeLong(remainingBytes);
+                                    logger.log(clientId, "DOWNLOAD START: '" + dlFilename + "' (" + remainingBytes + " bytes, offset " + dlOffset + ")");
                                     fileService.sendFile(dlFilename, dlOffset, out);
 
                                     logger.log(clientId, "DOWNLOAD SUCCESS: '" + dlFilename

@@ -12,29 +12,45 @@ import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * FileService manages file storage on the server side.
  *
- * Phase 4: Supports receiving uploaded files and sending files for download.
- * Files are stored in a configurable storage directory which is
- * created automatically if it doesn't exist.
+ * Phase 7: Thread-safe file operations with per-filename locking.
  *
  * Design decisions:
- * - Uses buffered streams to minimize system calls during file I/O.
- * - Reads/writes exactly the declared byte count in chunks using a fixed-size buffer.
- *   This avoids loading entire files into memory at once.
- * - Uses RandomAccessFile for downloads to support seek-based offset reads,
- *   preparing for resume functionality in future phases.
- * - No locking is needed yet since only one client connects at a time.
+ * - Uses a Map<String, ReentrantLock> backed by ConcurrentHashMap to provide
+ *   one lock per filename. This allows concurrent operations on DIFFERENT files
+ *   to proceed in parallel, while operations on the SAME file are serialized.
+ * - Both receiveFile and sendFile acquire the lock before I/O and release it
+ *   in a finally block, guaranteeing release even if an exception occurs.
+ * - Path validation uses canonical path comparison to block directory traversal
+ *   attacks (e.g., filenames containing "../").
+ * - Uses buffered streams for efficient I/O and RandomAccessFile for seek support.
+ *
+ * Why per-filename locks instead of one lock for the whole FileService:
+ * - A single global lock would serialize ALL file operations. If Client A uploads
+ *   "report.pdf" and Client B uploads "photo.jpg" simultaneously, Client B would
+ *   have to wait for Client A to finish — even though they touch different files.
+ * - Per-filename locks allow these two operations to run in parallel on separate
+ *   threads, only blocking when two clients access the SAME filename.
+ * - This is the same principle as database row-level locking vs table-level locking.
  */
 public class FileService {
 
     // Directory where uploaded files are stored
     private static final String STORAGE_DIR = "storage";
 
-    // Path object for the storage directory
+    // Path object for the storage directory (resolved to absolute for path validation)
     private final Path storagePath;
+
+    // Per-filename lock map: each filename gets its own ReentrantLock
+    // ConcurrentHashMap handles thread-safe map operations;
+    // computeIfAbsent atomically creates a lock on first access to a filename
+    private final Map<String, ReentrantLock> fileLocks = new ConcurrentHashMap<>();
 
     /**
      * Constructs the FileService and ensures the storage directory exists.
@@ -42,39 +58,73 @@ public class FileService {
      * @throws IOException if the directory cannot be created
      */
     public FileService() throws IOException {
-        this.storagePath = Paths.get(STORAGE_DIR);
+        this.storagePath = Paths.get(STORAGE_DIR).toAbsolutePath().normalize();
 
         // Create the storage directory if it doesn't exist
         if (!Files.exists(storagePath)) {
             Files.createDirectories(storagePath);
-            System.out.println("[FileService] Created storage directory: " + storagePath.toAbsolutePath());
+            System.out.println("[FileService] Created storage directory: " + storagePath);
         } else {
-            System.out.println("[FileService] Storage directory ready: " + storagePath.toAbsolutePath());
+            System.out.println("[FileService] Storage directory ready: " + storagePath);
         }
     }
 
     /**
      * Sanitizes a client-provided filename and resolves it safely under the storage directory.
      *
-     * Strips any path components (e.g., "../" or "subdir/") to prevent directory
-     * traversal attacks. Only the base filename is kept.
+     * Two layers of protection:
+     * 1. Strip path components: Paths.get(filename).getFileName() keeps only the base name.
+     * 2. Canonical path check: verify the resolved path starts with the storage directory,
+     *    blocking any traversal that survives stripping (e.g., edge cases on different OS).
      *
      * @param filename the raw filename from the client
-     * @return the resolved Path under the storage directory
+     * @return the resolved, validated Path under the storage directory
+     * @throws SecurityException if the resolved path escapes the storage directory
      */
     private Path resolveSafePath(String filename) {
-        String safeFilename = Paths.get(filename).getFileName().toString();
-        return storagePath.resolve(safeFilename);
+        if (filename == null || filename.trim().isEmpty()) {
+            throw new IllegalArgumentException("Filename cannot be null or empty");
+        }
+
+        // Layer 1: strip directory components
+        Path pathObj = Paths.get(filename).getFileName();
+        if (pathObj == null) {
+            throw new IllegalArgumentException("Invalid filename path: " + filename);
+        }
+        String safeFilename = pathObj.toString();
+
+        // Layer 2: resolve and normalize, then verify containment
+        Path targetPath = storagePath.resolve(safeFilename).toAbsolutePath().normalize();
+
+        if (!targetPath.startsWith(storagePath)) {
+            throw new SecurityException(
+                    "Path traversal blocked: '" + filename + "' resolves outside storage directory");
+        }
+
+        return targetPath;
+    }
+
+    /**
+     * Returns the ReentrantLock for a given filename, creating one if it doesn't exist.
+     *
+     * computeIfAbsent is atomic on ConcurrentHashMap: if two threads call this
+     * for the same filename simultaneously, only one ReentrantLock is created
+     * and both threads receive the same instance.
+     *
+     * @param filename the sanitized filename to get a lock for
+     * @return the ReentrantLock for this filename
+     */
+    private ReentrantLock getLock(String filename) {
+        return fileLocks.computeIfAbsent(filename, key -> new ReentrantLock());
     }
 
     /**
      * Receives a file from the client's input stream and writes it to disk.
      *
-     * The method reads exactly {@code fileSize} bytes from the stream in chunks
-     * using a fixed-size buffer (Protocol.BUFFER_SIZE). This approach:
-     * - Never loads the entire file into memory (supports large files)
-     * - Uses BufferedOutputStream to batch disk writes (fewer syscalls)
-     * - Reads exactly the declared number of bytes (protocol stays in sync)
+     * Acquires the per-filename lock before writing to prevent two concurrent
+     * uploads of the same filename from interleaving their bytes on disk.
+     * The lock is released in a finally block to guarantee release even if
+     * an IOException occurs mid-transfer.
      *
      * @param filename the name of the file to save (stored under storage/)
      * @param fileSize the exact number of bytes to read from the stream
@@ -87,39 +137,45 @@ public class FileService {
         }
 
         Path targetPath = resolveSafePath(filename);
+        String safeFilename = targetPath.getFileName().toString();
 
-        // BufferedOutputStream wraps FileOutputStream to batch small writes
-        // into larger disk I/O operations, dramatically improving performance
-        try (BufferedOutputStream fileOut = new BufferedOutputStream(
-                new FileOutputStream(targetPath.toFile()))) {
+        // Acquire the per-filename lock — blocks if another thread holds it
+        ReentrantLock lock = getLock(safeFilename);
+        lock.lock();
+        try {
+            // BufferedOutputStream wraps FileOutputStream to batch small writes
+            try (BufferedOutputStream fileOut = new BufferedOutputStream(
+                    new FileOutputStream(targetPath.toFile()))) {
 
-            byte[] buffer = new byte[Protocol.BUFFER_SIZE];
-            long remaining = fileSize;
+                byte[] buffer = new byte[Protocol.BUFFER_SIZE];
+                long remaining = fileSize;
 
-            // Read in chunks until all bytes are consumed
-            // Each iteration reads min(bufferSize, remaining) bytes
-            while (remaining > 0) {
-                // Cast is safe: Math.min guarantees result <= BUFFER_SIZE (an int)
-                int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
-                in.readFully(buffer, 0, chunkSize);
-                fileOut.write(buffer, 0, chunkSize);
-                remaining -= chunkSize;
+                // Read in chunks until all bytes are consumed
+                while (remaining > 0) {
+                    int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
+                    in.readFully(buffer, 0, chunkSize);
+                    fileOut.write(buffer, 0, chunkSize);
+                    remaining -= chunkSize;
+                }
+
+                fileOut.flush();
             }
 
-            // Ensure all buffered data is flushed to disk
-            fileOut.flush();
+            System.out.println("[FileService] File saved: " + targetPath
+                    + " (" + fileSize + " bytes)");
+        } finally {
+            // Always release the lock, even if an exception occurred
+            lock.unlock();
         }
-
-        System.out.println("[FileService] File saved: " + targetPath.toAbsolutePath()
-                + " (" + fileSize + " bytes)");
     }
 
     /**
      * Returns the number of remaining bytes in a file starting from the given offset.
      *
-     * This method is used to tell the client how many bytes to expect before
-     * the server begins streaming file data. The offset parameter exists to
-     * support resume in future phases (for now, callers pass offset=0).
+     * This is a read-only metadata query (file size check), so it does NOT
+     * acquire the per-filename lock. The sizeFrom + sendFile pair is protected
+     * because sendFile acquires the lock, and the caller (ClientHandler) calls
+     * them sequentially on the same thread.
      *
      * @param filename the name of the file in the storage directory
      * @param offset   the byte offset to start from (0 = beginning of file)
@@ -147,14 +203,9 @@ public class FileService {
     /**
      * Sends file bytes to the client starting from the given offset.
      *
-     * Uses RandomAccessFile instead of FileInputStream because:
-     * 1. RandomAccessFile supports seek() — essential for resume in future phases.
-     *    With FileInputStream, you'd have to read and discard bytes to reach the
-     *    offset, wasting disk I/O. RandomAccessFile.seek() jumps directly.
-     * 2. It provides a clear read contract: read into a byte array with an exact
-     *    count, making chunked transfer straightforward.
-     * 3. Even though offset is always 0 in this phase, choosing RandomAccessFile
-     *    now avoids a refactor when resume support is added.
+     * Acquires the per-filename lock before reading to prevent a concurrent
+     * upload from overwriting the file mid-read, which would send corrupted
+     * or inconsistent data to the downloading client.
      *
      * @param filename the name of the file in the storage directory
      * @param offset   the byte offset to start reading from
@@ -163,37 +214,42 @@ public class FileService {
      */
     public void sendFile(String filename, long offset, DataOutputStream out) throws IOException {
         Path targetPath = resolveSafePath(filename);
+        String safeFilename = targetPath.getFileName().toString();
 
-        // RandomAccessFile in read-only mode ("r")
-        try (RandomAccessFile raf = new RandomAccessFile(targetPath.toFile(), "r")) {
-            // Seek to the requested offset (0 for full download, >0 for resume)
-            raf.seek(offset);
+        // Acquire the per-filename lock — prevents corrupted reads during concurrent uploads
+        ReentrantLock lock = getLock(safeFilename);
+        lock.lock();
+        try {
+            // RandomAccessFile in read-only mode ("r")
+            try (RandomAccessFile raf = new RandomAccessFile(targetPath.toFile(), "r")) {
+                raf.seek(offset);
 
-            byte[] buffer = new byte[Protocol.BUFFER_SIZE];
-            long remaining = raf.length() - offset;
+                byte[] buffer = new byte[Protocol.BUFFER_SIZE];
+                long remaining = raf.length() - offset;
 
-            // Stream file bytes in chunks
-            while (remaining > 0) {
-                int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
-                raf.readFully(buffer, 0, chunkSize);
-                out.write(buffer, 0, chunkSize);
-                remaining -= chunkSize;
+                // Stream file bytes in chunks
+                while (remaining > 0) {
+                    int chunkSize = (int) Math.min(Protocol.BUFFER_SIZE, remaining);
+                    raf.readFully(buffer, 0, chunkSize);
+                    out.write(buffer, 0, chunkSize);
+                    remaining -= chunkSize;
+                }
+
+                out.flush();
             }
 
-            out.flush();
+            System.out.println("[FileService] File sent: " + safeFilename
+                    + " (from offset " + offset + ")");
+        } finally {
+            lock.unlock();
         }
-
-        System.out.println("[FileService] File sent: " + targetPath.getFileName()
-                + " (from offset " + offset + ")");
     }
 
     /**
      * Drains (discards) exactly {@code fileSize} bytes from the input stream.
      *
-     * This is critical when the server must reject an upload (e.g., client
-     * not authenticated) but the client has already started streaming bytes.
-     * Without draining, the next readUTF() would read file bytes as a
-     * command string, permanently desyncing the protocol.
+     * No lock is needed here because draining doesn't touch any file on disk.
+     * It only consumes bytes from the network stream to keep the protocol in sync.
      *
      * @param fileSize the number of bytes to discard
      * @param in       the DataInputStream to drain from
