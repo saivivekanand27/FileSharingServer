@@ -24,6 +24,7 @@ public final class Protocol {
     public static final String CMD_EXIT     = "EXIT";
     public static final String CMD_UPLOAD   = "UPLOAD";
     public static final String CMD_DOWNLOAD = "DOWNLOAD";
+    public static final String CMD_LIST     = "LIST";
 
     // ── Transfer Settings ────────────────────────────────────────────
     // Buffer size for chunked file transfer (8 KB)

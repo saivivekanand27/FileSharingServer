@@ -1,4 +1,0 @@
-Hello! This is a test file to verify the multi-threaded file sharing server's upload implementation.
-It contains multiple lines to simulate a realistic ASCII transfer.
-We want to verify that the byte size remains exact, the file is recreated on disk correctly, and the server does not desync.
-Good luck!

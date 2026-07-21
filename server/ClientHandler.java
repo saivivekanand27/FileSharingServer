@@ -207,6 +207,32 @@ public class ClientHandler implements Runnable {
                             }
                             break;
 
+                        case Protocol.CMD_LIST:
+                            if (session == null) {
+                                String listError = Protocol.error("Not authenticated");
+                                out.writeUTF(listError);
+                                out.flush();
+                                logger.log(clientId, "LIST FAILED: not authenticated");
+                            } else {
+                                try {
+                                    String[] files = fileService.listFiles();
+                                    out.writeUTF(Protocol.RESP_OK);
+                                    out.writeInt(files.length);
+                                    for (String f : files) {
+                                        out.writeUTF(f);
+                                    }
+                                    out.flush();
+                                    logger.log(clientId, "LIST SUCCESS: " + files.length
+                                            + " file(s) by '" + session.getUsername() + "'");
+                                } catch (IOException e) {
+                                    String ioError = Protocol.error("Failed to list files: " + e.getMessage());
+                                    out.writeUTF(ioError);
+                                    out.flush();
+                                    logger.log(clientId, "LIST FAILED: " + e.getMessage());
+                                }
+                            }
+                            break;
+
                         case Protocol.CMD_EXIT:
                             // Client requested disconnect
                             out.writeUTF(Protocol.RESP_OK);

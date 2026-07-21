@@ -46,7 +46,8 @@ public class Client {
                 System.out.println("|  1) Login                    |");
                 System.out.println("|  2) Upload File              |");
                 System.out.println("|  3) Download File            |");
-                System.out.println("|  4) Exit                     |");
+                System.out.println("|  4) List Files               |");
+                System.out.println("|  5) Exit                     |");
                 System.out.println("+------------------------------+");
                 System.out.print("Choose an option: ");
 
@@ -207,6 +208,29 @@ public class Client {
                         break;
 
                     case "4":
+                        // ── List Files Flow ──────────────────────────
+                        out.writeUTF(Protocol.CMD_LIST);
+                        out.flush();
+
+                        String listResponse = in.readUTF();
+                        if (Protocol.isError(listResponse)) {
+                            System.out.println("[Client] List failed: " + listResponse);
+                            break;
+                        }
+
+                        int fileCount = in.readInt();
+                        if (fileCount == 0) {
+                            System.out.println("[Client] No files on server.");
+                        } else {
+                            System.out.println("[Client] Files on server (" + fileCount + "):");
+                            for (int i = 0; i < fileCount; i++) {
+                                String name = in.readUTF();
+                                System.out.println("  " + (i + 1) + ") " + name);
+                            }
+                        }
+                        break;
+
+                    case "5":
                         // ── Exit Flow ────────────────────────────────
                         out.writeUTF(Protocol.CMD_EXIT);
                         out.flush();
@@ -220,7 +244,7 @@ public class Client {
 
                     default:
                         // Invalid menu choice — handled client-side, no server call
-                        System.out.println("[Client] Invalid option. Please choose 1, 2, 3, or 4.");
+                        System.out.println("[Client] Invalid option. Please choose 1-5.");
                         break;
                 }
             }

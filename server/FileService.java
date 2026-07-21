@@ -257,4 +257,27 @@ public class FileService {
 
         System.out.println("[FileService] Drained " + fileSize + " bytes (upload rejected).");
     }
+
+    /**
+     * Lists all regular files in the storage directory, sorted alphabetically.
+     *
+     * Uses NIO Files.list() which returns a lazy Stream of Path entries.
+     * We filter to regular files only (excludes subdirectories and symlinks),
+     * extract the filename string, sort alphabetically, and collect to an array.
+     *
+     * No locking is needed because this is a directory listing (metadata read),
+     * not a file content read. The OS handles directory entry visibility atomically.
+     *
+     * @return a sorted array of filenames; empty array if no files exist
+     * @throws IOException if reading the directory fails
+     */
+    public String[] listFiles() throws IOException {
+        try (var stream = Files.list(storagePath)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
+                    .sorted()
+                    .toArray(String[]::new);
+        }
+    }
 }
