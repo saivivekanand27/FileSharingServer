@@ -1,10 +1,22 @@
-[10:37:11] SERVER: Listening on port 5000 (thread pool size: 8)
-[10:37:14] /127.0.0.1:41835: Connected
-[10:37:14] /127.0.0.1:41835: LOGIN SUCCESS: user 'alice'
-[10:37:14] /127.0.0.1:41835: UPLOAD START: 'testA.txt' (16 bytes)
-[10:37:14] /127.0.0.1:41835: UPLOAD SUCCESS: 'testA.txt' (16 bytes) by 'alice'
-[10:37:14] /127.0.0.1:41835: UPLOAD START: 'testB.txt' (18 bytes)
-[10:37:14] /127.0.0.1:41835: UPLOAD SUCCESS: 'testB.txt' (18 bytes) by 'alice'
-[10:37:14] /127.0.0.1:41835: LIST SUCCESS: 2 file(s) by 'alice'
-[10:37:14] /127.0.0.1:41835: EXIT (user: 'alice')
-[10:37:14] /127.0.0.1:41835: Connection closed
+[10:40:14] SERVER: Listening on port 5000 (thread pool size: 8)
+[10:40:16] /127.0.0.1:24525: Connected
+[10:40:16] /127.0.0.1:24525: LOGIN SUCCESS: user 'alice'
+[10:40:16] /127.0.0.1:24525: UPLOAD START: 'uploadA.txt' (1458897 bytes)
+[10:40:16] /127.0.0.1:24525: UPLOAD SUCCESS: 'uploadA.txt' (1458897 bytes) by 'alice'
+[10:40:17] /127.0.0.1:24525: LIST SUCCESS: 1 file(s) by 'alice'
+[10:40:17] /127.0.0.1:24525: EXIT (user: 'alice')
+[10:40:17] /127.0.0.1:24525: Connection closed
+[10:40:17] /127.0.0.1:24526: Connected
+[10:40:17] /127.0.0.1:24526: LOGIN SUCCESS: user 'alice'
+[10:40:17] /127.0.0.1:24526: UPLOAD START: 'uploadB.txt' (1458897 bytes)
+[10:40:17] /127.0.0.1:24526: UPLOAD SUCCESS: 'uploadB.txt' (1458897 bytes) by 'alice'
+[10:40:17] /127.0.0.1:24526: LIST SUCCESS: 2 file(s) by 'alice'
+[10:40:17] /127.0.0.1:24526: EXIT (user: 'alice')
+[10:40:17] /127.0.0.1:24526: Connection closed
+[10:40:17] /127.0.0.1:24527: Connected
+[10:40:17] /127.0.0.1:24527: LOGIN SUCCESS: user 'alice'
+[10:40:17] /127.0.0.1:24527: UPLOAD START: 'uploadA.txt' (1458897 bytes)
+[10:40:17] /127.0.0.1:24527: UPLOAD SUCCESS: 'uploadA.txt' (1458897 bytes) by 'alice'
+[10:40:17] /127.0.0.1:24527: LIST SUCCESS: 2 file(s) by 'alice'
+[10:40:17] /127.0.0.1:24527: EXIT (user: 'alice')
+[10:40:17] /127.0.0.1:24527: Connection closed
